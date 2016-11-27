@@ -1,0 +1,24 @@
+
+import desktoxin.Position;
+import desktoxin.Token;
+import desktoxin.TokenType;
+import desktoxin.language;
+import desktoxin.Lexer;
+import desktoxin.parser;
+
+string code = '
+define dark_button dark button
+let red = rgb(255, 0, 0)
+let blue = rgb(0, 0, 255)
+
+dark_button x {
+	text = "hi"
+	colour = blue
+}
+';
+
+void main() {
+	new Lexer lexer( code, "src" );
+
+	parse( lexer );
+}

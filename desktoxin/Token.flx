@@ -1,0 +1,37 @@
+
+string getTokenTypeString(TokenType type);
+string getTokenTypeString(TokenType type)
+	= match type {
+		null => "null";
+		default => type;
+	};
+
+class Token {
+	Position position;
+	TokenType type;
+	string value;
+
+	Token(TokenType type, string value, Position position) {
+		self.type = type;
+		self.value = value;
+		self.position = position;
+	}
+
+	string tostring();
+	string get_near_string();
+
+	static Token EOF(Position position);
+}
+
+/*static*/ Token Token:EOF(Position position)
+	= new Token( TokenType.EOF, "EOF", position );
+
+string Token:tostring()
+	= getTokenTypeString( self.type ) >> " <" >> self.value >> ">";
+
+string Token:get_near_string()
+	= match self.type {
+		TokenType.String => "<string>";
+		TokenType.EOF => "<eof>";
+		default => self:tostring();
+	};

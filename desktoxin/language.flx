@@ -1,0 +1,20 @@
+
+bool{string} keywords = {
+	["import"] = true;
+
+	["let"] = true, ["define"] = true;
+};
+
+bool{string} symbols = {
+	["("] = true, [")"] = true;
+	["{"] = true, ["}"] = true;
+	["["] = true, ["]"] = true;
+	["."] = true, [":"] = true;
+	[","] = true, [";"] = true;
+
+	["="] = true;
+
+	["+"] = true, ["-"] = true;
+
+	// plus the operators
+};

@@ -1,0 +1,23 @@
+
+class Position {
+	int line;
+	int character;
+	string source;
+	string strline;
+
+	Position(string source, int line, int character, string strline) {
+		self.source = source;
+		self.line = line;
+		self.character = character;
+		self.strline = strline;
+	}
+
+	const string get_line_ptr()
+		 = self.strline:gsub( "\t", " " )
+		>> "\n" >> (" "):rep( self.character - 1 )
+		>> "^";
+
+	const string get_src_pos()
+		 = self.source
+		>> "[" >> self.line >> "]";
+}

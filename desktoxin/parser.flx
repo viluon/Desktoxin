@@ -1,0 +1,37 @@
+
+void parse_error(Position position, string err);
+void parse(Lexer lexer);
+
+void error(Position position, string err)
+	= throw new ParserException( position:get_src_pos() >> ": " >> err >> "\n" >> position:get_line_ptr() );
+
+void parse(Lexer lexer) {
+	while !lexer:isEOF() {
+		if lexer:skip( TokenType.Keyword, "define" ) {
+			string name = lexer:skipValue( TokenType.Identifier )
+			           || parse_error( lexer:get().position, "expected macro name after 'define'" );
+			Token[] list = [];
+
+			while !lexer:isEOF() && lexer:next_same_line()
+				list[#list + 1] = lexer:next();
+
+			lexer:define_macro( name, list );
+		}
+		else if lexer:skip( TokenType.Keyword, "let" ) {
+			string name = lexer:skipValue( TokenType.Identifier )
+			           || parse_error( lexer:get().position, "expected macro name after 'let'" );
+			Token[] list = [];
+
+			if !lexer:skipValue( TokenType.Symbol )
+				parse_error( lexer:get().position, "expected '=' after macro name" );
+
+			while !lexer:isEOF() && lexer:next_same_line()
+				list[#list + 1] = lexer:next();
+
+			lexer:define_macro( name, list );
+		}
+		else {
+			print( lexer:next():tostring() );
+		}
+	}
+}

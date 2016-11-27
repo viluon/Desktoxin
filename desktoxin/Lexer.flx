@@ -1,0 +1,319 @@
+
+string getline(string text, int line) {
+	for int i = 1, i <= line - 1, i++
+		text = text:gsub( "^.-\n", "" );
+	return text:gsub( "\n.*$", "" );
+}
+
+Position Lexer:getPosition(null int n = 0) {
+	let character = self.character;
+	self.character += n;
+	return new Position( self.source_name, self.line, character, self.strline );
+}
+
+bool Lexer:isEOF() {
+	while true {
+		if self.text:sub( self.position, self.position ) == "\n" {
+			self:skipNewline();
+		}
+		else if self.text:sub( self.position, self.position + 1 ) == "//"
+			 || self.text:sub( self.position, self.position + 1 ) == "/*" {
+			self:skipComment();
+		}
+		else if self.text:find( "^%s", self.position ) {
+			self:skipWhitespace();
+		}
+		else
+			break;
+	}
+
+	return self.position > #self.text;
+}
+
+void Lexer:error(string err, null Position position = self:getPosition())
+	= throw new LexerException(
+		   position:get_src_pos() >> ": "
+		>> err >> "\n"
+		>> position:get_line_ptr()
+	);
+
+Token Lexer:consumePattern(TokenType type, string pattern) {
+	let value = string["match"]( self.text, "^" >> pattern, self.position );
+
+	if !value
+		return null;
+
+	self.position += #value;
+	self.token_line = self.line;
+
+	return new Token( type, value, self:getPosition( #value ) );
+}
+
+void Lexer:consumeString() {
+	let s = {};
+	let pos = self:getPosition( 1 );
+	let opening = self.text:sub( self.position, self.position );
+
+	for int i = self.position + 1, i <= #self.text, i++ {
+		string char = self.text:sub( i, i );
+
+		self.character++;
+
+		if char == "\\" { // a \ not preceeded by a \
+			i++;
+
+			string char = self.text:sub( i, i );
+
+			s[#s + 1] = escaped_characters[char];
+
+			if char == "\n" {
+				self.line++;
+				self.strline = getline( self.text, self.line );
+				self.character = 1;
+			}
+		}
+
+		else if char == "\n" { // a \n
+			s[#s + 1] = "\n";
+			self.line++;
+			self.strline = getline( self.text, self.line );
+			self.character = 1;
+		}
+
+		else if char == opening { // the closing string tag
+			self.position = i + 1;
+			self.token_line = self.line;
+			self.buffer[#self.buffer + 1] = new Token( TokenType.String, table.concat( s ), pos );
+
+			return;
+		}
+
+		else // any other character
+			s[#s + 1] = char;
+	}
+
+	return self:error( "missing end of string", pos );
+
+}
+
+void Lexer:consumeWord() {
+	let token = self:consumePattern( TokenType.Identifier, "[%w_]+" );
+
+	if self.macros[token.value] {
+		foreach i, v in self.macros[token.value]
+			table.insert( self.buffer, self.buffer_position + i - 1, v );
+	}
+	else {
+		if keywords[token.value]
+			token.type = TokenType.Keyword;
+
+		else if token.value == "true" || token.value == "false"
+			token.type = TokenType.Boolean;
+
+		self.buffer[#self.buffer + 1] = token;
+	}
+}
+
+void Lexer:consumeNumber() {
+	self.buffer[#self.buffer + 1]
+	 = self:consumePattern( TokenType.Float, "%d*%.%d+e[%+%-]?%d+" )
+	|| self:consumePattern( TokenType.Float, "%d*%.%d+" )
+	|| self:consumePattern( TokenType.Byte, "%d+e[%+%-]?%d+b" )
+	|| self:consumePattern( TokenType.Byte, "%d+b" )
+	|| self:consumePattern( TokenType.Integer, "%d+e[%+%-]?%d+" )
+	|| self:consumePattern( TokenType.Integer, "%d+" )
+	|| self:error "Something bad has happened. This is bad :/";
+}
+
+void Lexer:consumeHexadecimal() {
+	self.buffer[#self.buffer + 1] = self:consumePattern( TokenType.Hexadecimal, "0x%x+" )
+		|| self:error "Crap.";
+}
+
+void Lexer:consumeBinary() {
+	self.buffer[#self.buffer + 1] = self:consumePattern( TokenType.Binary, "0b[01]+" )
+		|| self:error "Crap.";
+}
+
+void Lexer:consumeSymbol() {
+	let position = self.position;
+	let s3 = self.text:sub( position, position + 2 );
+	let s2 = self.text:sub( position, position + 1 );
+	let s1 = self.text:sub( position, position );
+
+	self.token_line = self.line;
+
+	if symbols[s3] {
+		self.position += 3;
+		self.buffer[#self.buffer + 1] = new Token( TokenType.Symbol, s3, self:getPosition( 3 ) );
+	}
+	else if symbols[s2] {
+		self.position += 2;
+		self.buffer[#self.buffer + 1] = new Token( TokenType.Symbol, s2, self:getPosition( 2 ) );
+	}
+	else if symbols[s1] {
+		self.position += 1;
+		self.buffer[#self.buffer + 1] = new Token( TokenType.Symbol, s1, self:getPosition( 1 ) );
+	}
+	else {
+		return self:error( "unexpected symbol '" >> s1 >> "'" );
+	}
+}
+
+void Lexer:define_macro(string name, Token[] tokens) {
+	self.macros[name] = tokens;
+}
+
+void Lexer:skipWhitespace() {
+	let len = #string["match"]( self.text, "[^%S\n]+", self.position );
+	self.character += len;
+	self.position += len;
+}
+
+void Lexer:skipComment() {
+	if self.text:sub( self.position, self.position + 1 ) == "//" {
+		self.line++;
+		self.strline = getline( self.text, self.line );
+		self.character = 1;
+		self.position += #( string["match"]( self.text, "^.-\n", self.position ) || self.text:sub( self.position ) );
+	}
+	else {
+		let finish = self.text:find( "%*/", self.position );
+		let newlines = finish && select( 2, self.text:sub( self.position, finish ):gsub( "\n", "" ) );
+
+		if finish {
+			self.line += newlines;
+			self.strline = getline( self.text, self.line );
+			self.character = newlines > 0
+				&& #self.text:sub( self.position, finish ):gsub( ".+\n", "" ) + 2
+				|| self.character + finish - self.position + 2;
+			self.position = finish + 2;
+		}
+		else
+			return self:error "missing end of comment '*/'";
+	}
+}
+
+void Lexer:skipNewline() {
+	self.line++;
+	self.character = 1;
+	self.position++;
+	self.strline = getline( self.text, self.line );
+}
+
+void Lexer:skipAllWhitespace() {
+	while true {
+		if self.text:find( "^\n", self.position ) {
+			self:skipNewline();
+		}
+		else if self.text:sub( self.position, self.position + 1 ) == "//"
+		     || self.text:sub( self.position, self.position + 1 ) == "/*" {
+			self:skipComment();
+		}
+		else if self.text:find( "^%s", self.position ) {
+			self:skipWhitespace();
+		}
+		else {
+			break;
+		}
+	}
+}
+
+void Lexer:consume() {
+	self:skipAllWhitespace();
+
+	if self.position > #self.text
+		self.buffer[#self.buffer + 1] = Token.EOF( self:getPosition() );
+
+	else if self.text:find( "^@[%w_%-]", self.position )
+		self:consumeInstruction();
+
+	else if self.text:find( "^[\"']", self.position )
+		self:consumeString();
+
+	else if self.text:find( "^0x%x+", self.position )
+		self:consumeHexadecimal();
+
+	else if self.text:find( "^0b[01]+", self.position )
+		self:consumeBinary();
+
+	else if self.text:find( "^%d+b?%W", self.position ) || self.text:find( "^%d+b?$", self.position )
+		|| self.text:find( "^%d+e[%+%-]?%d+b?%W", self.position ) || self.text:find( "^%d+e[%+%-]?%d+b?$", self.position )
+		|| self.text:find( "^%d*%.%d+%W", self.position ) || self.text:find( "^%d*%.%d+$", self.position )
+		|| self.text:find( "^%d*%.%d+e[%+%-]?%d+%W", self.position ) || self.text:find( "^%d*%.%d+e[%+%-]?%d+$", self.position )
+		self:consumeNumber();
+
+	else if self.text:find( "^[%w_]+", self.position )
+		self:consumeWord();
+
+	else
+		self:consumeSymbol();
+}
+
+void Lexer:mark()
+	self.mark_stack[#self.mark_stack + 1] = self.buffer_position;
+
+void Lexer:back() {
+	self.buffer_position = table.remove( self.mark_stack, #self.mark_stack );
+
+	while #self.mark_stack == 0 && self.buffer_position > 1 {
+		table.remove( self.buffer, 1 );
+		self.buffer_position--;
+	}
+}
+
+void Lexer:pop_mark() {
+	self.mark_stack[#self.mark_stack] = null;
+
+	while #self.mark_stack == 0 && self.buffer_position > 1 {
+		table.remove( self.buffer, 1 );
+		self.buffer_position--;
+	}
+}
+
+Token Lexer:get(null int position = self.buffer_position) {
+	let buffer = self.buffer;
+
+	while !buffer[position]
+		self:consume();
+
+	return buffer[position];
+}
+
+Token Lexer:peek(null int lookahead = 1)
+	= self:get(self.buffer_position + lookahead);
+
+Token Lexer:next() {
+	Token t = self:get( self.buffer_position );
+
+	self.buffer_position++;
+
+	while #self.mark_stack == 0 && self.buffer_position > 1 {
+		table.remove( self.buffer, 1 );
+		self.buffer_position--;
+	}
+
+	return t;
+}
+
+bool Lexer:next_same_line() {
+	self:skipAllWhitespace();
+
+	return self.token_line == self.line;
+}
+
+Token Lexer:test(TokenType type, null string value, null int lookahead = 0)
+	= token.type == type && (!value || token.value == value) && token || null
+	where token = self:peek( lookahead );
+
+Token Lexer:skip(TokenType type, null string value)
+	= token.type == type && (!value || token.value == value) && self:next() || null
+	where token = self:get();
+
+string Lexer:testValue(TokenType type, null string value, null int lookahead)
+	= token && token.value || null
+	where token = self:test(type, value, lookahead);
+
+string Lexer:skipValue(TokenType type, null string value)
+	= token && token.value || null
+	where token = self:skip(type, value);
